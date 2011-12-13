@@ -118,6 +118,7 @@ __VA_ARGS__ \
 @class IASKSpecifier;
 
 @protocol IASKSettingsReaderFilterDelegate;
+@protocol IASKSettingsReaderModelDelegate;
 
 @interface IASKSettingsReader : NSObject {
     NSString        *_path;
@@ -143,9 +144,12 @@ __VA_ARGS__ \
 - (NSString*)titleForStringId:(NSString*)stringId;
 - (NSString*)pathForImageNamed:(NSString*)image;
 
+- (void) reload;
 // can be used to statically prevent entries (or groups)
 // from appearing in the settings
 @property (nonatomic, assign) id<IASKSettingsReaderFilterDelegate> filterDelegate;
+
+@property (nonatomic, assign) id<IASKSettingsReaderModelDelegate> modelDelegate;
 
 @property (nonatomic, retain) NSString      *path;
 @property (nonatomic, retain) NSString      *localizationTable;
@@ -159,5 +163,25 @@ __VA_ARGS__ \
 
 - (BOOL) settingsReader:(IASKSettingsReader*) reader shouldAddGroupTitleWithDictionary:(NSDictionary*) groupDictionary;
 - (BOOL) settingsReader:(IASKSettingsReader*) reader shouldAddSpecifier:(IASKSpecifier*) specifier;
+
+@end
+
+@protocol IASKSettingsReaderModelDelegate <NSObject>
+
+- (void) settingsReaderWillChangeContent:(IASKSettingsReader*) settingsReader;
+
+- (void) settingsReader:(IASKSettingsReader*) settingsReader 
+     didRemoveEntryAtIndexPath:(NSIndexPath*) indexPath;
+
+- (void) settingsReader:(IASKSettingsReader*) settingsReader 
+ didAddEntryAtIndexPath:(NSIndexPath*) indexPath;
+
+- (void) settingsReader:(IASKSettingsReader*) settingsReader 
+          didAddSection:(NSUInteger) section;
+- (void) settingsReader:(IASKSettingsReader*) settingsReader 
+          didRemoveSection:(NSUInteger) section;
+
+- (void) settingsReaderDidChangeContent:(IASKSettingsReader*) settingsReader;
+- (void) settingReaderChanged:(IASKSettingsReader*) settingsReader;
 
 @end

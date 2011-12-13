@@ -16,7 +16,6 @@
 
 
 #import "IASKAppSettingsViewController.h"
-#import "IASKSettingsReader.h"
 #import "IASKSettingsStoreUserDefaults.h"
 #import "IASKPSToggleSwitchSpecifierViewCell.h"
 #import "IASKPSSliderSpecifierViewCell.h"
@@ -67,6 +66,7 @@ CGRect IASKCGRectSwap(CGRect rect);
 - (IASKSettingsReader*)settingsReader {
 	if (!_settingsReader) {
 		_settingsReader = [[IASKSettingsReader alloc] initWithFile:self.file];
+    _settingsReader.modelDelegate = self;
 	}
 	return _settingsReader;
 }
@@ -75,6 +75,7 @@ CGRect IASKCGRectSwap(CGRect rect);
   if(_settingsReader != settingsReader) {
     [_settingsReader release];
     _settingsReader = [settingsReader retain];
+    _settingsReader.modelDelegate = self;
     if(self.isViewLoaded) {
       [self.tableView reloadData];
     }
@@ -295,6 +296,9 @@ CGRect IASKCGRectSwap(CGRect rect);
                                                         object:[toggle key]
                                                       userInfo:[NSDictionary dictionaryWithObject:[self.settingsStore objectForKey:[toggle key]]
                                                                                            forKey:[toggle key]]];
+  if([[[spec specifierDict] objectForKey:@"reloadsSettings"] boolValue]) {
+    [self.settingsReader reload];
+  }
 }
 
 - (void)sliderChangedValue:(id)sender {
@@ -840,5 +844,37 @@ CGRect IASKCGRectSwap(CGRect rect) {
 	newRect.size.width = rect.size.height;
 	newRect.size.height = rect.size.width;
 	return newRect;
+}
+
+#pragma mark - IASKSettingsReaderModelDelegate
+- (void)settingsReaderWillChangeContent:(IASKSettingsReader *)settingsReader {
+  [self.tableView beginUpdates];
+}
+
+- (void)settingsReaderDidChangeContent:(IASKSettingsReader *)settingsReader {
+  [self.tableView endUpdates];
+}
+
+- (void)settingsReader:(IASKSettingsReader *)settingsReader didAddEntryAtIndexPath:(NSIndexPath *)indexPath {
+  [self.tableView insertRowsAtIndexPaths:[NSArray arrayWithObject:indexPath] 
+                        withRowAnimation:UITableViewRowAnimationFade];
+}
+
+- (void)settingsReader:(IASKSettingsReader *)settingsReader didRemoveEntryAtIndexPath:(NSIndexPath *)indexPath {
+  [self.tableView deleteRowsAtIndexPaths:[NSArray arrayWithObject:indexPath] 
+                        withRowAnimation:UITableViewRowAnimationFade];  
+}
+- (void)settingsReader:(IASKSettingsReader *)settingsReader didRemoveSection:(NSUInteger)section {
+  [self.tableView deleteSections:[NSIndexSet indexSetWithIndex:section]
+                withRowAnimation:UITableViewRowAnimationFade];  
+}
+
+- (void)settingsReader:(IASKSettingsReader *)settingsReader didAddSection:(NSUInteger)section {
+  [self.tableView insertSections:[NSIndexSet indexSetWithIndex:section] 
+                withRowAnimation:UITableViewRowAnimationFade];
+}
+
+- (void) settingReaderChanged:(IASKSettingsReader*) settingsReader {
+  [self.tableView reloadData];
 }
 @end
