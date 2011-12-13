@@ -28,6 +28,7 @@
 @implementation IASKSettingsReader
 
 @synthesize filterDelegate = _filterDelegate,
+modelDelegate = _modelDelegate,
 path=_path,
 localizationTable=_localizationTable,
 bundlePath=_bundlePath,
@@ -182,6 +183,85 @@ dataSource=_dataSource;
 
 - (NSString*)pathForImageNamed:(NSString*)image {
 	return [[self bundlePath] stringByAppendingPathComponent:image];
+}
+
+#define SETINGS_USE_ANIMATIONS 1
+
+- (void) reload {
+#ifdef SETINGS_USE_ANIMATIONS
+  NSMutableArray* oldDataSource = [[self.dataSource mutableCopy] autorelease];
+  [self _reinterpretBundle:self.settingsBundle];
+
+  NSArray* newDataSource = self.dataSource;
+  if([oldDataSource count] == [newDataSource count]) {
+    //all good, return
+    return;
+  }
+  [self.modelDelegate settingsReaderWillChangeContent:self];
+  
+  while ([oldDataSource count] > [newDataSource count]) {
+    NSMutableArray* rowIndexPathsToRemove = [NSMutableArray array];
+    NSMutableIndexSet* sectionsToRemove = [NSMutableIndexSet indexSet];
+    NSUInteger currentSection = [oldDataSource count] - 1;
+    [sectionsToRemove addIndex:currentSection];
+    NSArray* sectionToRemove = [[[oldDataSource lastObject] retain] autorelease];
+    [oldDataSource removeLastObject];
+    NSUInteger counter = 0;
+    for (id entry in sectionToRemove) {
+      if([entry isKindOfClass:[NSDictionary class]]) {
+        continue;
+      }
+      [rowIndexPathsToRemove addObject:
+       [NSIndexPath indexPathForRow:counter inSection:currentSection]];
+      ++counter;
+    }
+   
+    for(NSIndexPath* indexPath in rowIndexPathsToRemove) {
+      [self.modelDelegate settingsReader:self 
+               didRemoveEntryAtIndexPath:indexPath];
+    }
+    [sectionsToRemove enumerateIndexesUsingBlock:^(NSUInteger idx, BOOL* stop) {
+      [self.modelDelegate settingsReader:self 
+                        didRemoveSection:idx];      
+    }];
+  }
+
+  if([oldDataSource count] < [newDataSource count]) {
+    NSMutableArray* rowIndexPathsToAdd = [NSMutableArray array];
+    NSMutableIndexSet* sectionsToAdd = [NSMutableIndexSet indexSet];
+
+    //starting index
+    NSUInteger startIndex = [oldDataSource count];
+    for(unsigned int currentSectionIndex = startIndex; 
+        currentSectionIndex < [newDataSource count]; 
+        ++currentSectionIndex) {
+      [sectionsToAdd addIndex:currentSectionIndex];
+      NSArray* rowArrayToAdd = [newDataSource objectAtIndex:currentSectionIndex];
+      NSUInteger counter = 0;
+      for(id entry in rowArrayToAdd) {
+        if([entry isKindOfClass:[NSDictionary class]]) {
+          continue;
+        }
+        [rowIndexPathsToAdd addObject:[NSIndexPath indexPathForRow:counter 
+                                                         inSection:currentSectionIndex]];
+        ++counter;
+      }
+    }
+    
+    for(NSIndexPath* indexPath in rowIndexPathsToAdd) {
+      [self.modelDelegate settingsReader:self 
+                  didAddEntryAtIndexPath:indexPath];
+    }
+    [sectionsToAdd enumerateIndexesUsingBlock:^(NSUInteger idx, BOOL* stop) {
+      [self.modelDelegate settingsReader:self 
+                           didAddSection:idx];      
+    }];
+  }
+  [self.modelDelegate settingsReaderDidChangeContent:self];
+#else 
+  [self _reinterpretBundle:self.settingsBundle];
+  [self.modelDelegate settingReaderChanged:self];
+#endif
 }
 
 - (NSString *)platformSuffix {

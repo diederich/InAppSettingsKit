@@ -18,6 +18,7 @@
 #import <MessageUI/MessageUI.h>
 
 #import "IASKSettingsStore.h"
+#import "IASKSettingsReader.h"
 #import "IASKViewController.h"
 
 @class IASKSettingsReader;
@@ -69,7 +70,7 @@
 @end
 
 
-@interface IASKAppSettingsViewController : UITableViewController <IASKViewController, UITextFieldDelegate, UINavigationControllerDelegate, MFMailComposeViewControllerDelegate> {
+@interface IASKAppSettingsViewController : UITableViewController <IASKViewController, UITextFieldDelegate, UINavigationControllerDelegate, MFMailComposeViewControllerDelegate, IASKSettingsReaderModelDelegate> {
 	id<IASKSettingsDelegate>  _delegate;
     
     NSMutableArray          *_viewList;
