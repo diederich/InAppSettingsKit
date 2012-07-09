@@ -30,10 +30,10 @@
 
 @optional
 #pragma mark - UITableView header customization
-- (CGFloat) settingsViewController:(id<IASKViewController>) settingsViewContoller
+- (CGFloat) settingsViewController:(id<IASKViewController>)settingsViewController
                          tableView:(UITableView *)tableView 
          heightForHeaderForSection:(NSInteger)section;
-- (UIView *) settingsViewController:(id<IASKViewController>) settingsViewContoller
+- (UIView *) settingsViewController:(id<IASKViewController>)settingsViewController
                           tableView:(UITableView *)tableView 
             viewForHeaderForSection:(NSInteger)section;
 
@@ -67,10 +67,10 @@
 
 #pragma mark - respond to button taps
 - (void)settingsViewController:(IASKAppSettingsViewController*)sender buttonTappedForKey:(NSString*)key;
+- (void)settingsViewController:(IASKAppSettingsViewController*)sender tableView:(UITableView *)tableView didSelectCustomViewSpecifier:(IASKSpecifier*)specifier;
 @end
 
-
-@interface IASKAppSettingsViewController : UITableViewController <IASKViewController, UITextFieldDelegate, UINavigationControllerDelegate, MFMailComposeViewControllerDelegate, IASKSettingsReaderModelDelegate> {
+@interface IASKAppSettingsViewController : UITableViewController <IASKViewController, UITextFieldDelegate, MFMailComposeViewControllerDelegate, IASKSettingsReaderModelDelegate> {
 	id<IASKSettingsDelegate>  _delegate;
     
     NSMutableArray          *_viewList;
@@ -83,14 +83,17 @@
     
     BOOL                    _showCreditsFooter;
     BOOL                    _showDoneButton;
+	
+    NSSet                   *_hiddenKeys;
 }
 
 @property (nonatomic, assign) IBOutlet id delegate;
 @property (nonatomic, copy) NSString *file;
 @property (nonatomic, assign) BOOL showCreditsFooter;
 @property (nonatomic, assign) BOOL showDoneButton;
+@property (nonatomic, retain) NSSet *hiddenKeys;
 
 - (void)synchronizeSettings;
 - (IBAction)dismiss:(id)sender;
-
+- (void)setHiddenKeys:(NSSet*)hiddenKeys animated:(BOOL)animated;
 @end

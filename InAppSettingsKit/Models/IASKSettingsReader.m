@@ -33,7 +33,8 @@ path=_path,
 localizationTable=_localizationTable,
 bundlePath=_bundlePath,
 settingsBundle=_settingsBundle, 
-dataSource=_dataSource;
+dataSource=_dataSource,
+hiddenKeys = _hiddenKeys;
 
 - (id)init {
 	return [self initWithFile:@"Root"];
@@ -80,9 +81,24 @@ dataSource=_dataSource;
 	[_settingsBundle release], _settingsBundle = nil;
 	[_dataSource release], _dataSource = nil;
 	[_bundle release], _bundle = nil;
+    [_hiddenKeys release], _hiddenKeys = nil;
 
 	[super dealloc];
 }
+
+
+- (void)setHiddenKeys:(NSSet *)anHiddenKeys {
+	if (_hiddenKeys != anHiddenKeys) {
+		id old = _hiddenKeys;
+		_hiddenKeys = [anHiddenKeys retain];
+		[old release];
+		
+		if (_settingsBundle) {
+			[self _reinterpretBundle:_settingsBundle];
+		}
+	}
+}
+
 
 - (void)_reinterpretBundle:(NSDictionary*)settingsBundle {
 	NSArray *preferenceSpecifiers	= [settingsBundle objectForKey:kIASKPreferenceSpecifiers];
@@ -91,10 +107,15 @@ dataSource=_dataSource;
 	
 	for (NSDictionary *specifier in preferenceSpecifiers) {
 		if ([[specifier objectForKey:kIASKType] isEqualToString:kIASKPSGroupSpecifier]) {
+      if ([self.hiddenKeys containsObject:[specifier objectForKey:kIASKKey]]) {
+        continue;
+      }
+
       //optionally ask the delegate if this should be included
       if(nil != self.filterDelegate && ! [self.filterDelegate settingsReader:self shouldAddGroupTitleWithDictionary:specifier]) {
         continue;
       }
+
 			NSMutableArray *newArray = [[NSMutableArray alloc] init];
 			
 			[newArray addObject:specifier];
@@ -141,6 +162,20 @@ dataSource=_dataSource;
 	return specifier;
 }
 
+- (NSIndexPath*)indexPathForKey:(NSString *)key {
+	for (NSUInteger sectionIndex = 0; sectionIndex < self.dataSource.count; sectionIndex++) {
+		NSArray *section = [self.dataSource objectAtIndex:sectionIndex];
+		for (NSUInteger rowIndex = 0; rowIndex < section.count; rowIndex++) {
+			IASKSpecifier *specifier = (IASKSpecifier*)[section objectAtIndex:rowIndex];
+			if ([specifier isKindOfClass:[IASKSpecifier class]] && [specifier.key isEqualToString:key]) {
+				NSUInteger correctedRowIndex = rowIndex - [self _sectionHasHeading:sectionIndex];
+				return [NSIndexPath indexPathForRow:correctedRowIndex inSection:sectionIndex];
+			}
+		}
+	}
+	return nil;
+}
+
 - (IASKSpecifier*)specifierForKey:(NSString*)key {
 	for (NSArray *specifiers in _dataSource) {
 		for (id sp in specifiers) {
@@ -157,7 +192,7 @@ dataSource=_dataSource;
 - (NSString*)titleForSection:(NSInteger)section {
 	if ([self _sectionHasHeading:section]) {
 		NSDictionary *dict = [[[self dataSource] objectAtIndex:section] objectAtIndex:kIASKSectionHeaderIndex];
-		return [_bundle localizedStringForKey:[dict objectForKey:kIASKTitle] value:[dict objectForKey:kIASKTitle] table:self.localizationTable];
+		return [self titleForStringId:[dict objectForKey:kIASKTitle]];
 	}
 	return nil;
 }
@@ -172,7 +207,7 @@ dataSource=_dataSource;
 - (NSString*)footerTextForSection:(NSInteger)section {
 	if ([self _sectionHasHeading:section]) {
 		NSDictionary *dict = [[[self dataSource] objectAtIndex:section] objectAtIndex:kIASKSectionHeaderIndex];
-		return [_bundle localizedStringForKey:[dict objectForKey:kIASKFooterText] value:[dict objectForKey:kIASKFooterText] table:self.localizationTable];
+		return [self titleForStringId:[dict objectForKey:kIASKFooterText]];
 	}
 	return nil;
 }

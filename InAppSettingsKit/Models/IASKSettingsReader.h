@@ -127,6 +127,7 @@ __VA_ARGS__ \
     NSDictionary    *_settingsBundle;
     NSArray         *_dataSource;
     NSBundle        *_bundle;
+    NSSet           *_hiddenKeys;
 }
 
 - (id)initWithFile:(NSString*)file;
@@ -137,6 +138,7 @@ __VA_ARGS__ \
 - (NSInteger)numberOfSections;
 - (NSInteger)numberOfRowsForSection:(NSInteger)section;
 - (IASKSpecifier*)specifierForIndexPath:(NSIndexPath*)indexPath;
+- (NSIndexPath*)indexPathForKey:(NSString*)key;
 - (IASKSpecifier*)specifierForKey:(NSString*)key;
 - (NSString*)titleForSection:(NSInteger)section;
 - (NSString*)keyForSection:(NSInteger)section;
@@ -156,6 +158,7 @@ __VA_ARGS__ \
 @property (nonatomic, retain) NSString      *bundlePath;
 @property (nonatomic, retain) NSDictionary  *settingsBundle;
 @property (nonatomic, retain) NSArray       *dataSource;
+@property (nonatomic, retain) NSSet         *hiddenKeys;
 
 @end
 

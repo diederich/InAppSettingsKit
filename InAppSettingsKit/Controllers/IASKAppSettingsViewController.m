@@ -48,6 +48,7 @@ CGRect IASKCGRectSwap(CGRect rect);
 
 - (void)_textChanged:(id)sender;
 - (void)synchronizeSettings;
+- (void)userDefaultsDidChange;
 - (void)reload;
 @end
 
@@ -61,6 +62,7 @@ CGRect IASKCGRectSwap(CGRect rect);
 @synthesize showCreditsFooter = _showCreditsFooter;
 @synthesize showDoneButton = _showDoneButton;
 @synthesize settingsStore = _settingsStore;
+@synthesize hiddenKeys = _hiddenKeys;
 
 #pragma mark accessors
 - (IASKSettingsReader*)settingsReader {
@@ -105,6 +107,8 @@ CGRect IASKCGRectSwap(CGRect rect);
 	
     self.tableView.contentOffset = CGPointMake(0, 0);
 	self.settingsReader = nil; // automatically initializes itself
+	[_hiddenKeys release], _hiddenKeys = nil;
+	[self.tableView reloadData];
 }
 
 - (BOOL)isPad {
@@ -143,10 +147,6 @@ CGRect IASKCGRectSwap(CGRect rect);
 - (void) setup {
   // If set to YES, will display credits for InAppSettingsKit creators
   _showCreditsFooter = YES;
-  
-  if ([self isPad]) {
-    self.tableView.separatorStyle = UITableViewCellSeparatorStyleSingleLineEtched;
-  }
 }
 
 - (NSMutableArray *)viewList {
@@ -172,6 +172,10 @@ CGRect IASKCGRectSwap(CGRect rect);
   if (!self.title) {
     self.title = NSLocalizedString(@"Settings", @"");
   }
+
+  if ([self isPad]) {
+    self.tableView.separatorStyle = UITableViewCellSeparatorStyleSingleLineEtched;
+  }
 }
 
 - (void)viewDidUnload {
@@ -193,8 +197,14 @@ CGRect IASKCGRectSwap(CGRect rect);
     //and reselect it, so we get the nice default deselect animation from UITableViewController
     [self.tableView selectRowAtIndexPath:selectedIndexPath animated:NO scrollPosition:UITableViewScrollPositionNone];
   }
-
-    self.navigationController.delegate = self;
+	
+	if ([self.settingsStore isKindOfClass:[IASKSettingsStoreUserDefaults class]]) {
+		[[NSNotificationCenter defaultCenter] addObserver:self
+												 selector:@selector(userDefaultsDidChange)
+													 name:NSUserDefaultsDidChangeNotification
+												   object:[NSUserDefaults standardUserDefaults]];
+		[self userDefaultsDidChange]; // force update in case of changes while we were hidden
+	}
 
 	[super viewWillAppear:animated];
 }
@@ -220,10 +230,8 @@ CGRect IASKCGRectSwap(CGRect rect);
 - (void)viewDidDisappear:(BOOL)animated {
 	[[NSNotificationCenter defaultCenter] removeObserver:self];
 
-	if (!self.navigationController.delegate) {
-		// hide the keyboard when we're popping from the navigation controller
-		[self.currentFirstResponder resignFirstResponder];
-	}
+    // hide the keyboard
+    [self.currentFirstResponder resignFirstResponder];
 	
 	[super viewDidDisappear:animated];
 }
@@ -239,11 +247,89 @@ CGRect IASKCGRectSwap(CGRect rect);
 	// Release any cached data, images, etc that aren't in use.
 }
 
-- (void)navigationController:(UINavigationController *)navigationController willShowViewController:(UIViewController *)viewController animated:(BOOL)animated {
-	if (![viewController isKindOfClass:[IASKAppSettingsViewController class]] && ![viewController isKindOfClass:[IASKSpecifierValuesViewController class]]) {
-		[self dismiss:nil];
-	}
+- (void)setHiddenKeys:(NSSet *)theHiddenKeys {
+	[self setHiddenKeys:theHiddenKeys animated:NO];
 }
+
+
+- (void)setHiddenKeys:(NSSet*)theHiddenKeys animated:(BOOL)animated {
+    if (_hiddenKeys != theHiddenKeys) {
+        NSSet *oldHiddenKeys = _hiddenKeys;
+        _hiddenKeys = [theHiddenKeys retain];
+        
+        if (animated) {			
+            [self.tableView beginUpdates];
+            
+            NSMutableSet *showKeys = [NSMutableSet setWithSet:oldHiddenKeys];
+            [showKeys minusSet:theHiddenKeys];
+            
+            NSMutableSet *hideKeys = [NSMutableSet setWithSet:theHiddenKeys];
+            [hideKeys minusSet:oldHiddenKeys];
+            
+            // calculate rows to be deleted
+            NSMutableArray *hideIndexPaths = [NSMutableArray array];
+            for (NSString *key in hideKeys) {
+                NSIndexPath *indexPath = [self.settingsReader indexPathForKey:key];
+                if (indexPath) {
+                    [hideIndexPaths addObject:indexPath];
+                }
+            }
+            
+            // calculate sections to be deleted
+            NSMutableIndexSet *hideSections = [NSMutableIndexSet indexSet];
+            for (NSInteger section = 0; section < [self numberOfSectionsInTableView:self.tableView ]; section++) {
+                NSUInteger rowsInSection = 0;
+                for (NSIndexPath *indexPath in hideIndexPaths) {
+                    if (indexPath.section == section) {
+                        rowsInSection++;
+                    }
+                }
+                if (rowsInSection >= [self.settingsReader numberOfRowsForSection:section]) {
+                    [hideSections addIndex:section];
+                }
+            }
+			
+            // set the datasource
+            self.settingsReader.hiddenKeys = theHiddenKeys;
+            
+            
+            // calculate rows to be inserted
+            NSMutableArray *showIndexPaths = [NSMutableArray array];
+            for (NSString *key in showKeys) {
+                NSIndexPath *indexPath = [self.settingsReader indexPathForKey:key];
+                if (indexPath) {
+                    [showIndexPaths addObject:indexPath];
+                }
+            }
+            
+            // calculate sections to be inserted
+            NSMutableIndexSet *showSections = [NSMutableIndexSet indexSet];
+            for (NSInteger section = 0; section < [self.settingsReader numberOfSections]; section++) {
+                NSUInteger rowsInSection = 0;
+                for (NSIndexPath *indexPath in showIndexPaths) {
+                    if (indexPath.section == section) {
+                        rowsInSection++;
+                    }
+                }
+                if (rowsInSection >= [self.settingsReader numberOfRowsForSection:section]) {
+                    [showSections addIndex:section];
+                }
+            }
+            
+            UITableViewRowAnimation animation = animated ? UITableViewRowAnimationTop : UITableViewRowAnimationNone;
+            [self.tableView deleteSections:hideSections withRowAnimation:animation];
+            [self.tableView deleteRowsAtIndexPaths:hideIndexPaths withRowAnimation:animation];
+            [self.tableView insertSections:showSections withRowAnimation:animation];
+            [self.tableView insertRowsAtIndexPaths:showIndexPaths withRowAnimation:animation];
+            [self.tableView endUpdates];
+        } else {
+            self.settingsReader.hiddenKeys = theHiddenKeys;
+            [self.tableView reloadData];
+        }
+        [oldHiddenKeys release];
+    }
+}
+
 
 - (void)dealloc {
     [[NSNotificationCenter defaultCenter] removeObserver:self];
@@ -253,6 +339,7 @@ CGRect IASKCGRectSwap(CGRect rect);
 	[_currentFirstResponder release], _currentFirstResponder = nil;
 	[_settingsReader release], _settingsReader = nil;
     [_settingsStore release], _settingsStore = nil;
+    [_hiddenKeys release], _hiddenKeys = nil;
 	
 	_delegate = nil;
 
@@ -265,7 +352,6 @@ CGRect IASKCGRectSwap(CGRect rect);
 
 - (IBAction)dismiss:(id)sender {
 	[self.settingsStore synchronize];
-	self.navigationController.delegate = nil;
 	
 	if (self.delegate && [self.delegate conformsToProtocol:@protocol(IASKSettingsDelegate)]) {
 		[self.delegate settingsViewControllerDidEnd:self];
@@ -414,191 +500,153 @@ CGRect IASKCGRectSwap(CGRect rect);
 	}
 }
 
+- (UITableViewCell*)dequeueReusableCellWithIdentifier:(NSString*)identifier {
+	UITableViewCell *cell = nil;
+	if ([identifier isEqualToString:kIASKPSToggleSwitchSpecifier]) {
+		cell = [[[NSBundle mainBundle] loadNibNamed:@"IASKPSToggleSwitchSpecifierViewCell" 
+											  owner:self 
+											options:nil] objectAtIndex:0];
+	}
+	else if ([identifier isEqualToString:kIASKPSMultiValueSpecifier] || [identifier isEqualToString:kIASKPSTitleValueSpecifier]) {
+		cell = [[[IASKPSTitleValueSpecifierViewCell alloc] initWithStyle:UITableViewCellStyleValue1 reuseIdentifier:identifier] autorelease];
+		cell.accessoryType = [identifier isEqualToString:kIASKPSMultiValueSpecifier] ? UITableViewCellAccessoryDisclosureIndicator : UITableViewCellAccessoryNone;
+	}
+	else if ([identifier isEqualToString:kIASKPSTextFieldSpecifier]) {
+		cell = (IASKPSTextFieldSpecifierViewCell*) [[[NSBundle mainBundle] loadNibNamed:@"IASKPSTextFieldSpecifierViewCell" 
+																				  owner:self 
+																				options:nil] objectAtIndex:0];
+	}
+	else if ([identifier isEqualToString:kIASKPSSliderSpecifier]) {
+		cell = (IASKPSSliderSpecifierViewCell*) [[[NSBundle mainBundle] loadNibNamed:@"IASKPSSliderSpecifierViewCell" 
+																			   owner:self 
+																			 options:nil] objectAtIndex:0];
+	} else if ([identifier isEqualToString:kIASKPSChildPaneSpecifier]) {
+		cell = [[[IASKPSTitleValueSpecifierViewCell alloc] initWithStyle:UITableViewCellStyleValue1 reuseIdentifier:identifier] autorelease];
+		cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+	} else if ([identifier isEqualToString:kIASKButtonSpecifier]) {
+		cell = [[[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:identifier] autorelease];
+	} else if ([identifier isEqualToString:kIASKMailComposeSpecifier]) {
+		cell = [[[IASKPSTitleValueSpecifierViewCell alloc] initWithStyle:UITableViewCellStyleValue1 reuseIdentifier:identifier] autorelease];
+		[cell setAccessoryType:UITableViewCellAccessoryDisclosureIndicator];
+	} else {
+		cell = [[[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:identifier] autorelease];
+	}
+	return cell;
+}
+
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
-    IASKSpecifier *specifier  = [self.settingsReader specifierForIndexPath:indexPath];
-    NSString *key           = [specifier key];
-
-    if ([[specifier type] isEqualToString:kIASKCustomViewSpecifier] && [self.delegate respondsToSelector:@selector(tableView:cellForSpecifier:)]) {
-      UITableViewCell* cell = [self.delegate tableView:tableView cellForSpecifier:specifier];
-      assert(nil != cell && "delegate must return a UITableViewCell for custom cell types");
-      return cell;
-    }
+	IASKSpecifier *specifier  = [self.settingsReader specifierForIndexPath:indexPath];
+	if ([specifier.type isEqualToString:kIASKCustomViewSpecifier] && [self.delegate respondsToSelector:@selector(tableView:cellForSpecifier:)]) {
+		UITableViewCell* cell = [self.delegate tableView:tableView cellForSpecifier:specifier];
+		assert(nil != cell && "delegate must return a UITableViewCell for custom cell types");
+		return cell;
+	}
 	
-	UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:[specifier type]];
+	UITableViewCell *cell = [self dequeueReusableCellWithIdentifier:specifier.type];
 	
-    if ([[specifier type] isEqualToString:kIASKPSToggleSwitchSpecifier]) {
-        if (!cell) {
-            cell = (IASKPSToggleSwitchSpecifierViewCell*) [[[NSBundle mainBundle] loadNibNamed:@"IASKPSToggleSwitchSpecifierViewCell" 
-																					   owner:self 
-																					 options:nil] objectAtIndex:0];
-        }
-        ((IASKPSToggleSwitchSpecifierViewCell*)cell).label.text = [specifier title];
-
-		id currentValue = [self.settingsStore objectForKey:key];
+	if ([specifier.type isEqualToString:kIASKPSToggleSwitchSpecifier]) {
+		((IASKPSToggleSwitchSpecifierViewCell*)cell).label.text = specifier.title;
+		
+		id currentValue = [self.settingsStore objectForKey:specifier.key];
 		BOOL toggleState;
 		if (currentValue) {
-			if ([currentValue isEqual:[specifier trueValue]]) {
+			if ([currentValue isEqual:specifier.trueValue]) {
 				toggleState = YES;
-			} else if ([currentValue isEqual:[specifier falseValue]]) {
+			} else if ([currentValue isEqual:specifier.falseValue]) {
 				toggleState = NO;
 			} else {
 				toggleState = [currentValue boolValue];
 			}
 		} else {
-			toggleState = [specifier defaultBoolValue];
+			toggleState = specifier.defaultBoolValue;
 		}
 		((IASKPSToggleSwitchSpecifierViewCell*)cell).toggle.on = toggleState;
 		
-        [((IASKPSToggleSwitchSpecifierViewCell*)cell).toggle addTarget:self action:@selector(toggledValue:) forControlEvents:UIControlEventValueChanged];
-        [((IASKPSToggleSwitchSpecifierViewCell*)cell).toggle setKey:key];
-        return cell;
-    }
-    else if ([[specifier type] isEqualToString:kIASKPSMultiValueSpecifier]) {
-        if (!cell) {
-            cell = [[[IASKPSTitleValueSpecifierViewCell alloc] initWithStyle:UITableViewCellStyleValue1 reuseIdentifier:[specifier type]] autorelease];
-			cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
-			cell.backgroundColor = [UIColor whiteColor];
-		}
-        [[cell textLabel] setText:[specifier title]];
-		[[cell detailTextLabel] setText:[[specifier titleForCurrentValue:[self.settingsStore objectForKey:key] != nil ? 
-										 [self.settingsStore objectForKey:key] : [specifier defaultValue]] description]];
-        return cell;
-    }
-    else if ([[specifier type] isEqualToString:kIASKPSTitleValueSpecifier]) {
-        if (!cell) {
-            cell = [[[IASKPSTitleValueSpecifierViewCell alloc] initWithStyle:UITableViewCellStyleValue1 reuseIdentifier:[specifier type]] autorelease];
-			cell.accessoryType = UITableViewCellAccessoryNone;
-			cell.backgroundColor = [UIColor whiteColor];
-        }
-		
-		cell.textLabel.text = [specifier title];
-		id value = [self.settingsStore objectForKey:key] ? : [specifier defaultValue];
+		[((IASKPSToggleSwitchSpecifierViewCell*)cell).toggle addTarget:self action:@selector(toggledValue:) forControlEvents:UIControlEventValueChanged];
+		((IASKPSToggleSwitchSpecifierViewCell*)cell).toggle.key = specifier.key;
+	}
+	else if ([specifier.type isEqualToString:kIASKPSMultiValueSpecifier]) {
+		cell.textLabel.text = specifier.title;
+		cell.detailTextLabel.text = [[specifier titleForCurrentValue:[self.settingsStore objectForKey:specifier.key] != nil ? 
+									  [self.settingsStore objectForKey:specifier.key] : specifier.defaultValue] description];
+	}
+	else if ([specifier.type isEqualToString:kIASKPSTitleValueSpecifier]) {
+		cell.textLabel.text = specifier.title;
+		id value = [self.settingsStore objectForKey:specifier.key] ? : specifier.defaultValue;
 		
 		NSString *stringValue;
-		if ([specifier multipleValues] || [specifier multipleTitles]) {
+		if (specifier.multipleValues || specifier.multipleTitles) {
 			stringValue = [specifier titleForCurrentValue:value];
 		} else {
 			stringValue = [value description];
 		}
-
-		cell.detailTextLabel.text = stringValue;
-		[cell setUserInteractionEnabled:NO];
 		
-        return cell;
-    }
-    else if ([[specifier type] isEqualToString:kIASKPSTextFieldSpecifier]) {
-        if (!cell) {
-            cell = (IASKPSTextFieldSpecifierViewCell*) [[[NSBundle mainBundle] loadNibNamed:@"IASKPSTextFieldSpecifierViewCell" 
-                                                                                      owner:self 
-                                                                                    options:nil] objectAtIndex:0];
-
-            ((IASKPSTextFieldSpecifierViewCell*)cell).textField.textAlignment = UITextAlignmentLeft;
-            ((IASKPSTextFieldSpecifierViewCell*)cell).textField.returnKeyType = UIReturnKeyDone;
-            cell.accessoryType = UITableViewCellAccessoryNone;
-        }
-
-		((IASKPSTextFieldSpecifierViewCell*)cell).label.text = [specifier title];
-      
-        NSString *textValue = [self.settingsStore objectForKey:key] != nil ? [self.settingsStore objectForKey:key] : [specifier defaultStringValue];
-        if (textValue && ![textValue isMemberOfClass:[NSString class]]) {
-            textValue = [NSString stringWithFormat:@"%@", textValue];
-        }
+		cell.detailTextLabel.text = stringValue;
+		cell.userInteractionEnabled = NO;
+	}
+	else if ([specifier.type isEqualToString:kIASKPSTextFieldSpecifier]) {
+		((IASKPSTextFieldSpecifierViewCell*)cell).label.text = specifier.title;
+		
+		NSString *textValue = [self.settingsStore objectForKey:specifier.key] != nil ? [self.settingsStore objectForKey:specifier.key] : specifier.defaultStringValue;
+		if (textValue && ![textValue isMemberOfClass:[NSString class]]) {
+			textValue = [NSString stringWithFormat:@"%@", textValue];
+		}
 		IASKTextField *textField = ((IASKPSTextFieldSpecifierViewCell*)cell).textField;
-        textField. text = textValue;
-		textField.key = key;
+		textField.text = textValue;
+		textField.key = specifier.key;
 		textField.delegate = self;
 		textField.secureTextEntry = [specifier isSecure];
-		textField.keyboardType = [specifier keyboardType];
-		textField.autocapitalizationType = [specifier autocapitalizationType];
-        [textField addTarget:self action:@selector(_textChanged:) forControlEvents:UIControlEventEditingChanged];
-        if([specifier isSecure]){
+		textField.keyboardType = specifier.keyboardType;
+		textField.autocapitalizationType = specifier.autocapitalizationType;
+		[textField addTarget:self action:@selector(_textChanged:) forControlEvents:UIControlEventEditingChanged];
+		if([specifier isSecure]){
 			textField.autocorrectionType = UITextAutocorrectionTypeNo;
-        } else {
-			textField.autocorrectionType = [specifier autoCorrectionType];
-        }
-        [cell setNeedsLayout];
-        return cell;
-    }
-	else if ([[specifier type] isEqualToString:kIASKPSSliderSpecifier]) {
-        if (!cell) {
-            cell = (IASKPSSliderSpecifierViewCell*) [[[NSBundle mainBundle] loadNibNamed:@"IASKPSSliderSpecifierViewCell" 
-																				 owner:self 
-																			   options:nil] objectAtIndex:0];
+		} else {
+			textField.autocorrectionType = specifier.autoCorrectionType;
 		}
-        
-        if ([[specifier minimumValueImage] length] > 0) {
-            ((IASKPSSliderSpecifierViewCell*)cell).minImage.image = [UIImage imageWithContentsOfFile:[_settingsReader pathForImageNamed:[specifier minimumValueImage]]];
-        }
-		
-        if ([[specifier maximumValueImage] length] > 0) {
-            ((IASKPSSliderSpecifierViewCell*)cell).maxImage.image = [UIImage imageWithContentsOfFile:[_settingsReader pathForImageNamed:[specifier maximumValueImage]]];
-		}
-        
-		IASKSlider *slider = ((IASKPSSliderSpecifierViewCell*)cell).slider;
-        slider.minimumValue = [specifier minimumValue];
-        slider.maximumValue = [specifier maximumValue];
-        slider.value =  [self.settingsStore objectForKey:key] != nil ? [[self.settingsStore objectForKey:key] floatValue] : [[specifier defaultValue] floatValue];
-        [slider addTarget:self action:@selector(sliderChangedValue:) forControlEvents:UIControlEventValueChanged];
-        slider.key = key;
 		[cell setNeedsLayout];
-        return cell;
-    }
-    else if ([[specifier type] isEqualToString:kIASKPSChildPaneSpecifier]) {
-        if (!cell) {
-            cell = [[[IASKPSTitleValueSpecifierViewCell alloc] initWithStyle:UITableViewCellStyleValue1 reuseIdentifier:[specifier type]] autorelease];
-			[cell setAccessoryType:UITableViewCellAccessoryDisclosureIndicator];
-			cell.backgroundColor = [UIColor whiteColor];
-        }
-
-        [[cell textLabel] setText:[specifier title]];
-        return cell;
-    } else if ([[specifier type] isEqualToString:kIASKOpenURLSpecifier]) {
-        if (!cell) {
-            cell = [[[IASKPSTitleValueSpecifierViewCell alloc] initWithStyle:UITableViewCellStyleValue1 reuseIdentifier:[specifier type]] autorelease];
-			[cell setAccessoryType:UITableViewCellAccessoryDisclosureIndicator];
-			cell.backgroundColor = [UIColor whiteColor];
-        }
-
-		cell.textLabel.text = [specifier title];
-		cell.detailTextLabel.text = [[specifier defaultValue] description];
-		return cell;        
-    } else if ([[specifier type] isEqualToString:kIASKButtonSpecifier]) {
-        if (!cell) {
-            cell = [[[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:[specifier type]] autorelease];
-			cell.backgroundColor = [UIColor whiteColor];
-        }
-        cell.textLabel.text = [specifier title];
-        cell.textLabel.textAlignment = UITextAlignmentCenter;
-        return cell;
-    } else if ([[specifier type] isEqualToString:kIASKMailComposeSpecifier]) {
-        if (!cell) {
-            cell = [[[IASKPSTitleValueSpecifierViewCell alloc] initWithStyle:UITableViewCellStyleValue1 reuseIdentifier:[specifier type]] autorelease];
-			[cell setAccessoryType:UITableViewCellAccessoryDisclosureIndicator];
-			cell.backgroundColor = [UIColor whiteColor];
-        }
-        
-		cell.textLabel.text = [specifier title];
-		cell.detailTextLabel.text = [[specifier defaultValue] description];
-		return cell;
+	}
+	else if ([specifier.type isEqualToString:kIASKPSSliderSpecifier]) {
+		if (specifier.minimumValueImage.length > 0) {
+			((IASKPSSliderSpecifierViewCell*)cell).minImage.image = [UIImage imageWithContentsOfFile:[_settingsReader pathForImageNamed:specifier.minimumValueImage]];
+		}
+		
+		if (specifier.maximumValueImage.length > 0) {
+			((IASKPSSliderSpecifierViewCell*)cell).maxImage.image = [UIImage imageWithContentsOfFile:[_settingsReader pathForImageNamed:specifier.maximumValueImage]];
+		}
+		
+		IASKSlider *slider = ((IASKPSSliderSpecifierViewCell*)cell).slider;
+		slider.minimumValue = specifier.minimumValue;
+		slider.maximumValue = specifier.maximumValue;
+		slider.value =	[self.settingsStore objectForKey:specifier.key] != nil ? [[self.settingsStore objectForKey:specifier.key] floatValue] : [specifier.defaultValue floatValue];
+		[slider addTarget:self action:@selector(sliderChangedValue:) forControlEvents:UIControlEventValueChanged];
+		slider.key = specifier.key;
+		[cell setNeedsLayout];
+	}
+	else if ([specifier.type isEqualToString:kIASKPSChildPaneSpecifier]) {
+		cell.textLabel.text = specifier.title;
+	} else if ([specifier.type isEqualToString:kIASKOpenURLSpecifier] || [specifier.type isEqualToString:kIASKMailComposeSpecifier]) {
+		cell.textLabel.text = specifier.title;
+		cell.detailTextLabel.text = [specifier.defaultValue description];
+	} else if ([specifier.type isEqualToString:kIASKButtonSpecifier]) {
+		NSString *value = [self.settingsStore objectForKey:specifier.key];
+		cell.textLabel.text = [value isKindOfClass:[NSString class]] ? [self.settingsReader titleForStringId:value] : specifier.title;
+		cell.textLabel.textAlignment = UITextAlignmentCenter;
 	} else {
-        if (!cell) {
-            cell = [[[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:[specifier type]] autorelease];
-			cell.backgroundColor = [UIColor whiteColor];
-        }
-        [[cell textLabel] setText:[specifier title]];
-        return cell;
-    }
+		cell.textLabel.text = specifier.title;
+	}
+	return cell;
 }
 
 - (NSIndexPath *)tableView:(UITableView *)tableView willSelectRowAtIndexPath:(NSIndexPath *)indexPath {
-  //create a set of specifier types that can't be selected
+	//create a set of specifier types that can't be selected
 	static NSSet* noSelectionTypes = nil;
-  if(nil == noSelectionTypes) {
-    noSelectionTypes = [[NSSet setWithObjects:kIASKPSToggleSwitchSpecifier, kIASKPSSliderSpecifier, nil] retain];
-  }
+	if(nil == noSelectionTypes) {
+		noSelectionTypes = [[NSSet setWithObjects:kIASKPSToggleSwitchSpecifier, kIASKPSSliderSpecifier, nil] retain];
+	}
   
 	IASKSpecifier *specifier  = [self.settingsReader specifierForIndexPath:indexPath];
-  if([noSelectionTypes containsObject:[specifier type]]) {
+	if([noSelectionTypes containsObject:specifier.type]) {
 		return nil;
 	} else {
 		return indexPath;
@@ -656,7 +704,6 @@ CGRect IASKCGRectSwap(CGRect rect);
 			if ([vc respondsToSelector:@selector(setSettingsStore:)]) {
 				[vc performSelector:@selector(setSettingsStore:) withObject:self.settingsStore];
 			}
-			self.navigationController.delegate = nil;
             [self.navigationController pushViewController:vc animated:YES];
             [vc performSelector:@selector(release)];
             return;
@@ -773,7 +820,9 @@ CGRect IASKCGRectSwap(CGRect rect);
             [alert release];
         }
 
-	} else {
+	} else if ([[specifier type] isEqualToString:kIASKCustomViewSpecifier] && [self.delegate respondsToSelector:@selector(settingsViewController:tableView:didSelectCustomViewSpecifier:)]) {
+        [self.delegate settingsViewController:self tableView:tableView didSelectCustomViewSpecifier:specifier];
+    } else {
         [tableView deselectRowAtIndexPath:indexPath animated:NO];
     }
 }
@@ -829,6 +878,31 @@ CGRect IASKCGRectSwap(CGRect rect);
 
 - (void)synchronizeSettings {
     [_settingsStore synchronize];
+}
+
+static NSDictionary *oldUserDefaults = nil;
+- (void)userDefaultsDidChange {
+	NSDictionary *currentDict = [NSUserDefaults standardUserDefaults].dictionaryRepresentation;
+	NSMutableArray *indexPathsToUpdate = [NSMutableArray array];
+	for (NSString *key in currentDict.allKeys) {
+		if (![[oldUserDefaults valueForKey:key] isEqual:[currentDict valueForKey:key]]) {
+			NSIndexPath *path = [self.settingsReader indexPathForKey:key];
+			if (path && ![[self.settingsReader specifierForKey:key].type isEqualToString:kIASKCustomViewSpecifier]) {
+				[indexPathsToUpdate addObject:path];
+			}
+		}
+	}
+	[oldUserDefaults release], oldUserDefaults = [currentDict retain];
+	
+	
+	for (UITableViewCell *cell in self.tableView.visibleCells) {
+		if ([cell isKindOfClass:[IASKPSTextFieldSpecifierViewCell class]] && [((IASKPSTextFieldSpecifierViewCell*)cell).textField isFirstResponder]) {
+			[indexPathsToUpdate removeObject:[self.tableView indexPathForCell:cell]];
+		}
+	}
+	if (indexPathsToUpdate.count) {
+		[self.tableView reloadRowsAtIndexPaths:indexPathsToUpdate withRowAnimation:UITableViewRowAnimationNone];
+	}
 }
 
 - (void)reload {

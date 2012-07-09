@@ -24,6 +24,10 @@
 
 #import "CustomViewCell.h"
 
+@interface MainViewController() 
+- (void)settingDidChange:(NSNotification*)notification;
+@end
+
 @implementation MainViewController
 
 @synthesize appSettingsViewController;
@@ -34,6 +38,11 @@
     appSettingsViewController.settingsReader = [[IASKSettingsReader alloc] initWithFile:appSettingsViewController.file 
                                                                          filterDelegate:self];
 		appSettingsViewController.delegate = self;
+		
+		[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(settingDidChange:) name:kIASKAppSettingChanged object:nil];
+
+		BOOL enabled = [[NSUserDefaults standardUserDefaults] boolForKey:@"AutoConnect"];
+		appSettingsViewController.hiddenKeys = enabled ? nil : [NSSet setWithObjects:@"AutoConnectLogin", @"AutoConnectPassword", nil];
 	}
 	return appSettingsViewController;
 }
@@ -142,6 +151,14 @@
 	return cell;
 }
 
+#pragma mark kIASKAppSettingChanged notification
+- (void)settingDidChange:(NSNotification*)notification {
+	if ([notification.object isEqual:@"AutoConnect"]) {
+		BOOL enabled = (BOOL)[[notification.userInfo objectForKey:@"AutoConnect"] intValue];
+		[self.appSettingsViewController setHiddenKeys:enabled ? nil : [NSSet setWithObjects:@"AutoConnectLogin", @"AutoConnectPassword", nil] animated:YES];
+	}
+}
+
 #pragma mark UITextViewDelegate (for CustomViewCell)
 - (void)textViewDidChange:(UITextView *)textView {
     [[NSUserDefaults standardUserDefaults] setObject:textView.text forKey:@"customCell"];
@@ -154,8 +171,8 @@
 		UIAlertView *alert = [[[UIAlertView alloc] initWithTitle:@"Demo Action 1 called" message:nil delegate:nil cancelButtonTitle:@"OK" otherButtonTitles:nil] autorelease];
 		[alert show];
 	} else {
-		UIAlertView *alert = [[[UIAlertView alloc] initWithTitle:@"Demo Action 2 called" message:nil delegate:nil cancelButtonTitle:@"OK" otherButtonTitles:nil] autorelease];
-		[alert show];
+		NSString *newTitle = [[[NSUserDefaults standardUserDefaults] objectForKey:key] isEqualToString:@"Logout"] ? @"Login" : @"Logout";
+		[[NSUserDefaults standardUserDefaults] setObject:newTitle forKey:key];
 	}
 }
 
