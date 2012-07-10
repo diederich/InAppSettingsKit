@@ -359,7 +359,7 @@ CGRect IASKCGRectSwap(CGRect rect);
 }
 
 - (void)toggledValue:(id)sender {
-    IASKSwitch *toggle    = (IASKSwitch*)sender;
+    IASKSwitch *toggle    = [[(IASKSwitch*)sender retain] autorelease];
     IASKSpecifier *spec   = [_settingsReader specifierForKey:[toggle key]];
     
     if ([toggle isOn]) {
@@ -388,7 +388,7 @@ CGRect IASKCGRectSwap(CGRect rect);
 }
 
 - (void)sliderChangedValue:(id)sender {
-    IASKSlider *slider = (IASKSlider*)sender;
+    IASKSlider *slider = [[(IASKSlider*)sender retain] autorelease];
     [self.settingsStore setFloat:[slider value] forKey:[slider key]];
     [[NSNotificationCenter defaultCenter] postNotificationName:kIASKAppSettingChanged
                                                         object:[slider key]
@@ -500,7 +500,7 @@ CGRect IASKCGRectSwap(CGRect rect);
 	}
 }
 
-- (UITableViewCell*)dequeueReusableCellWithIdentifier:(NSString*)identifier {
+- (UITableViewCell*)createCellForIdentifier:(NSString*)identifier {
 	UITableViewCell *cell = nil;
 	if ([identifier isEqualToString:kIASKPSToggleSwitchSpecifier]) {
 		cell = [[[NSBundle mainBundle] loadNibNamed:@"IASKPSToggleSwitchSpecifierViewCell" 
@@ -542,7 +542,10 @@ CGRect IASKCGRectSwap(CGRect rect);
 		return cell;
 	}
 	
-	UITableViewCell *cell = [self dequeueReusableCellWithIdentifier:specifier.type];
+	UITableViewCell* cell = [tableView dequeueReusableCellWithIdentifier:specifier.type];
+	if(nil == cell) {
+		cell = [self createCellForIdentifier:specifier.type];
+	}
 	
 	if ([specifier.type isEqualToString:kIASKPSToggleSwitchSpecifier]) {
 		((IASKPSToggleSwitchSpecifierViewCell*)cell).label.text = specifier.title;
@@ -859,7 +862,7 @@ CGRect IASKCGRectSwap(CGRect rect);
 }
 
 - (void)_textChanged:(id)sender {
-    IASKTextField *text = (IASKTextField*)sender;
+    IASKTextField *text = [[(IASKTextField*)sender retain] autorelease];
     [_settingsStore setObject:[text text] forKey:[text key]];
     [[NSNotificationCenter defaultCenter] postNotificationName:kIASKAppSettingChanged
                                                         object:[text key]
